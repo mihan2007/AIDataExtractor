@@ -89,8 +89,11 @@ def poll_file_status(api_key: str, vector_store_id: str, file_id: str) -> dict:
         time.sleep(POLL_INTERVAL_SEC)
 
 
-def _upload_one(api_key: str, vector_store_id: str, path: str,
-                on_progress: Optional[Callable[[str], None]] = None) -> Tuple[str, bool, Optional[str]]:
+def _upload_one(api_key: str,
+                vector_store_id: str,
+                path: str,
+                on_progress: Optional[Callable[[str], None]] = None,
+                wait_index: bool = False) -> Tuple[str, bool, Optional[str]]:
     """Загрузка одного файла (для параллельного исполнения)."""
     name = os.path.basename(path)
     log = (lambda msg: on_progress(f"[{name}] {msg}")) if on_progress else (lambda *_: None)
@@ -105,31 +108,38 @@ def _upload_one(api_key: str, vector_store_id: str, path: str,
         log(f"file_id={file_id} получен, привязка к vector store…")
         attach_file_to_vector_store(api_key, vector_store_id, file_id)
 
-        log("ожидание индексации…")
-        status_info = poll_file_status(api_key, vector_store_id, file_id)
+        if wait_index:
+            log("ожидание индексации…")
+            status_info = poll_file_status(api_key, vector_store_id, file_id)
 
-        status = status_info.get("status")
-        if status == "processed":
-            log("готово ✅")
-            return path, True, None
-        elif status == "timeout":
-            log("превышено время ожидания ⏳")
-            return path, False, "timeout"
+            status = status_info.get("status")
+            if status == "processed":
+                log("готово ✅")
+                return path, True, None
+            elif status == "timeout":
+                log("превышено время ожидания ⏳")
+                return path, False, "timeout"
+            else:
+                log("индексация не удалась ❌")
+                return path, False, "Индексация не удалась"
         else:
-            log("индексация не удалась ❌")
-            return path, False, "Индексация не удалась"
+            log("индексацию пропускаем (wait_index=False) ✅")
+            return path, True, None
+
     except Exception as e:
         return path, False, str(e)
 
 
 def upload_to_vector_store(paths: List[str],
                            store_name: Optional[str] = None,
-                           on_progress: Optional[Callable[[str], None]] = None) -> str:
+                           on_progress: Optional[Callable[[str], None]] = None,
+                           wait_index: bool = False) -> str:
     """
     Основная функция загрузки.
     - Если store_name не указан, создаёт новое хранилище: vs-YYYYMMDD-HHMMSS
     - Параллельная или последовательная загрузка файлов
     - on_progress(msg) — необязательный колбэк для "живого" лога
+    - wait_index=False — по умолчанию НЕ ждём индексацию (не блокируем программу)
     """
     if not paths:
         return "Не выбрано ни одного файла."
@@ -155,7 +165,9 @@ def upload_to_vector_store(paths: List[str],
         # последовательная загрузка
         if not MAX_WORKERS or MAX_WORKERS <= 1:
             for p in paths:
-                path, ok, err = _upload_one(api_key, vector_store_id, p, on_progress=on_progress)
+                path, ok, err = _upload_one(api_key, vector_store_id, p,
+                                            on_progress=on_progress,
+                                            wait_index=wait_index)
                 if ok:
                     uploaded.append(path)
                 else:
@@ -163,7 +175,10 @@ def upload_to_vector_store(paths: List[str],
         else:
             # параллельная загрузка
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-                futures = [ex.submit(_upload_one, api_key, vector_store_id, p, on_progress) for p in paths]
+                futures = [
+                    ex.submit(_upload_one, api_key, vector_store_id, p, on_progress, wait_index)
+                    for p in paths
+                ]
                 for fut in as_completed(futures):
                     path, ok, err = fut.result()
                     if ok:
