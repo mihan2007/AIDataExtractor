@@ -5,27 +5,27 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
-from typing import Callable, Optional, List
+from typing import Optional, List
 
-import vector_store_cleanup as vsc
+from uploader import upload_to_vector_store_ex
+from vector_store_cleanup import cleanup_store
 
 
 class VectorStoreGUI(tk.Tk):
     """
-    Окно выбора файлов и отправки в Vector Store.
-
-    Возможности:
-      • Выбор и загрузка файлов с живым логом и замером времени/скорости.
-      • Кнопка «Очистить все хранилища» (удаляет файлы и сами хранилища).
+    Простой режим:
+      • Каждый запуск создаёт новое хранилище и грузит в него выбранные файлы.
+      • Без выбора существующего хранилища.
+      • Опция автоудаления созданного хранилища: через указанную задержку (мин).
+      • Минимальная задержка удаления — 1 минута.
     """
 
-    def __init__(self, on_upload: Optional[Callable] = None):
+    def __init__(self):
         super().__init__()
         self.title("Vector Store Uploader")
-        self.geometry("820x560")
+        self.geometry("820x580")
 
         self.selected_files: List[str] = []
-        self.on_upload = on_upload  # upload_to_vector_store(paths, on_progress, wait_index)
 
         # ---------- Верхняя панель ----------
         top = tk.Frame(self)
@@ -37,8 +37,16 @@ class VectorStoreGUI(tk.Tk):
         self.btn_upload = tk.Button(top, text="Отправить в Vector Store", command=self.upload_files)
         self.btn_upload.pack(side=tk.LEFT, padx=8)
 
-        self.btn_cleanup = tk.Button(top, text="Очистить все хранилища", command=self.cleanup_all_stores)
-        self.btn_cleanup.pack(side=tk.LEFT, padx=8)
+        # Автоудаление: чекбокс + задержка (мин)
+        auto_frame = tk.Frame(top)
+        auto_frame.pack(side=tk.RIGHT)
+        self.auto_delete_var = tk.BooleanVar(value=False)
+        # значение по умолчанию = 30 минут
+        self.delete_delay_var = tk.StringVar(value="30")
+        tk.Checkbutton(auto_frame, text="Удалить после обработки",
+                       variable=self.auto_delete_var).pack(side=tk.LEFT, padx=(8, 4))
+        tk.Label(auto_frame, text="Задержка (мин):").pack(side=tk.LEFT)
+        tk.Entry(auto_frame, width=4, textvariable=self.delete_delay_var).pack(side=tk.LEFT, padx=(4, 0))
 
         # ---------- Поле логов ----------
         self.txt_logs = ScrolledText(self, height=24, wrap=tk.WORD)
@@ -54,7 +62,6 @@ class VectorStoreGUI(tk.Tk):
     # ====================== Вспомогательные методы ======================
 
     def _log(self, msg: str, also_print: bool = True):
-        """Пишем в лог UI (и опционально дублируем в консоль)."""
         self.txt_logs.insert(tk.END, msg + "\n")
         self.txt_logs.see(tk.END)
         self.update_idletasks()
@@ -65,7 +72,6 @@ class VectorStoreGUI(tk.Tk):
         state = "disabled" if busy else "normal"
         self.btn_select.config(state=state)
         self.btn_upload.config(state=state)
-        self.btn_cleanup.config(state=state)
         self.status.set("Выполняется…" if busy else "Готово")
         self.update_idletasks()
 
@@ -92,12 +98,6 @@ class VectorStoreGUI(tk.Tk):
             messagebox.showwarning("Нет файлов", "Сначала выберите файлы")
             return
 
-        if not callable(self.on_upload):
-            names = [os.path.basename(f) for f in self.selected_files]
-            messagebox.showinfo("Отправка файлов",
-                                "Файлы были бы отправлены в Vector Store:\n\n" + "\n".join(names))
-            return
-
         try:
             total_size_bytes = sum(os.path.getsize(p) for p in self.selected_files)
         except OSError:
@@ -112,21 +112,47 @@ class VectorStoreGUI(tk.Tk):
         def bg_task():
             start = time.perf_counter()
             try:
-                result_msg = self.on_upload(self.selected_files, on_progress=on_progress, wait_index=False)
+                result = upload_to_vector_store_ex(
+                    self.selected_files,
+                    on_progress=on_progress,
+                    wait_index=False,  # не ждём индексацию: UI не блокируем
+                )
                 elapsed = time.perf_counter() - start
 
                 speed_kb_s = None
                 if total_size_bytes > 0 and elapsed > 0:
                     speed_kb_s = (total_size_bytes / 1024.0) / elapsed
 
+                store_id = result.get("store_id")
+
+                # Автоудаление по желанию
+                if self.auto_delete_var.get() and store_id:
+                    try:
+                        delay_min = int(self.delete_delay_var.get().strip() or "30")
+                    except ValueError:
+                        delay_min = 30
+
+                    # Минимальная задержка = 1 минута
+                    if delay_min < 1:
+                        self._log("⚠️ Задержка меньше 1 минуты недопустима. Используется 30 минут.")
+                        delay_min = 30
+
+                    def delayed_cleanup():
+                        try:
+                            if delay_min > 0:
+                                time.sleep(delay_min * 60)
+                            cleanup_store(store_id)
+                            self.after(0, lambda: self._log(f"🗑 Хранилище {store_id} удалено."))
+                        except Exception as e:
+                            self.after(0, lambda: self._log(f"❌ Ошибка удаления {store_id}: {e}"))
+
+                    threading.Thread(target=delayed_cleanup, daemon=True).start()
+
                 def done_ui():
                     self._log(f"\n⏱ Время отправки (без индексации): {elapsed:.2f} сек.")
                     if speed_kb_s is not None:
                         self._log(f"⚡ Средняя скорость: {speed_kb_s:.2f} КБ/сек.")
-                    final = result_msg + f"\n\n⏱ Время: {elapsed:.2f} сек."
-                    if speed_kb_s is not None:
-                        final += f"\n⚡ Скорость: {speed_kb_s:.2f} КБ/сек."
-                    messagebox.showinfo("Готово", final)
+                    messagebox.showinfo("Готово", result["summary"])
 
                 self.after(0, done_ui)
 
@@ -137,60 +163,7 @@ class VectorStoreGUI(tk.Tk):
 
         threading.Thread(target=bg_task, daemon=True).start()
 
-    def cleanup_all_stores(self):
-        """Полная очистка: удаляет все файлы из каждого Vector Store и сами хранилища."""
-        self._set_busy(True)
-        self._log("\n🧹 Запускаю очистку всех Vector Stores…")
-
-        def bg_cleanup():
-            try:
-                api_key = vsc.load_api_key()
-                stores = vsc.list_all_vector_stores(api_key)
-
-                if not stores:
-                    self.after(0, lambda: self._log("✅ Нет созданных Vector Stores — очищать нечего."))
-                    return
-
-                self.after(0, lambda: self._log(f"🔍 Найдено хранилищ: {len(stores)}\n"))
-
-                for store in stores:
-                    store_id = store.get("id")
-                    name = store.get("name", "(без имени)")
-                    self.after(0, lambda n=name, sid=store_id: self._log(f"🗂  Хранилище: {n} ({sid})"))
-
-                    try:
-                        files = vsc.list_files(api_key, store_id)
-                    except Exception as e:
-                        self.after(0, lambda e=e: self._log(f"   ❌ Ошибка получения списка файлов: {e}"))
-                        continue
-
-                    for f in files:
-                        fid = f.get("id")
-                        try:
-                            vsc.delete_file(api_key, store_id, fid)
-                            self.after(0, lambda fid=fid: self._log(f"   ✅ Файл удалён: {fid}"))
-                        except Exception as e:
-                            self.after(0, lambda fid=fid, e=e: self._log(f"   ❌ Ошибка удаления файла {fid}: {e}"))
-
-                    try:
-                        vsc.delete_vector_store(api_key, store_id)
-                        self.after(0, lambda: self._log("   🗑 Хранилище удалено."))
-                    except Exception as e:
-                        self.after(0, lambda sid=store_id, e=e: self._log(f"   ❌ Ошибка удаления хранилища {sid}: {e}"))
-
-                    self.after(0, lambda: self._log("-" * 50))
-
-                self.after(0, lambda: self._log("\n✨ Все Vector Stores удалены."))
-                self.after(0, lambda: messagebox.showinfo("Очистка завершена", "Все Vector Stores удалены."))
-
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Ошибка очистки", str(e)))
-            finally:
-                self.after(0, lambda: self._set_busy(False))
-
-        threading.Thread(target=bg_cleanup, daemon=True).start()
-
 
 if __name__ == "__main__":
-    app = VectorStoreGUI(on_upload=None)
+    app = VectorStoreGUI()
     app.mainloop()
