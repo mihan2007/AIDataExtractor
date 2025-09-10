@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-
+from config import API_KEY_PATH, BASE_URL, TIMEOUT
 import requests
 
 
@@ -11,9 +11,9 @@ class VectorStoreClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        api_key_path: str = r"C:\API_keys\API_key_GPT.txt",
-        base_url: str = "https://api.openai.com/v1",
-        request_timeout=(10, 90),
+        api_key_path: str = API_KEY_PATH,
+        base_url: str = BASE_URL,
+        request_timeout: tuple = TIMEOUT,
     ):
         self.api_key = api_key or self._load_api_key(api_key_path)
         self.base_url = base_url.rstrip("/")

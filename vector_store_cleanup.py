@@ -3,9 +3,9 @@ import os
 import requests
 from typing import List
 
-API_KEY_FILE = r"C:\API_keys\API_key_GPT.txt"
-API_BASE_URL = "https://api.openai.com/v1"
-REQUEST_TIMEOUT = (10, 90)
+
+# стало:
+from config import API_KEY_PATH as API_KEY_FILE, BASE_URL as API_BASE_URL, TIMEOUT as REQUEST_TIMEOUT
 
 
 def load_api_key(path: str = API_KEY_FILE) -> str:
