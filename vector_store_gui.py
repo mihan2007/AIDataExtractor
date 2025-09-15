@@ -19,8 +19,10 @@ from config import (
     AUTO_DELETE_DEFAULT_MIN, AUTO_DELETE_MIN_LIMIT,
     LOG_FONT, LOG_TEXT_HEIGHT,
     PAD_X, PAD_Y, PAD_Y_LOG, PAD_ENTRY, PAD_CHECK,
-    JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
+    JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS, PAD_BTN
 )
+
+from gui_layout import build_top_panel, build_log_area, build_status_bar
 
 # Журнал — импортируем опционально, чтобы GUI не падал, если файл пока не создан
 try:
@@ -42,60 +44,9 @@ class VectorStoreGUI(tk.Tk):
         self.selected_files: List[str] = []
         self.store_id: Optional[str] = None  # сюда положим ID созданного векторного хранилища
 
-        # ---------- Верхняя панель ----------
-        top = tk.Frame(self)
-        top.pack(fill=tk.X, padx=PAD_X, pady=PAD_Y)
-
-        self.btn_select = tk.Button(top, text="Выбрать файлы", command=self.select_files)
-        self.btn_select.pack(side=tk.LEFT)
-
-        self.btn_upload = tk.Button(top, text="Отправить в Vector Store", command=self.upload_files)
-        self.btn_upload.pack(side=tk.LEFT, padx=PAD_X)
-
-        # Кнопка "Обработать" (изначально выключена; но обработка также запускается автоматически после загрузки)
-        self.btn_process = tk.Button(top, text="Обработать", state="disabled", command=self.on_process_click)
-        self.btn_process.pack(side=tk.LEFT, padx=PAD_X)
-
-        # Кнопка журнала
-        self.btn_show_journal = tk.Button(
-            top,
-            text=("Журнал (вкл.)" if _JOURNAL_OK else "Журнал (модуль не найден)"),
-            command=self.show_journal,
-            state=("normal" if _JOURNAL_OK else "disabled"),
-        )
-        self.btn_show_journal.pack(side=tk.LEFT, padx=PAD_X)
-
-        # Автоудаление: чекбокс + задержка (мин)
-        auto_frame = tk.Frame(top)
-        auto_frame.pack(side=tk.RIGHT)
-        self.auto_delete_var = tk.BooleanVar(value=True)
-        # значение по умолчанию = 30 минут
-        self.delete_delay_var = tk.StringVar(value=AUTO_DELETE_DEFAULT_MIN)
-
-        tk.Checkbutton(
-            auto_frame,
-            text="Удалить после обработки",
-            variable=self.auto_delete_var
-        ).pack(side=tk.LEFT, padx=PAD_CHECK)
-
-        tk.Label(auto_frame, text="Задержка (мин):").pack(side=tk.LEFT)
-
-        tk.Entry(
-            auto_frame,
-            width=4,
-            textvariable=self.delete_delay_var
-        ).pack(side=tk.LEFT, padx=PAD_ENTRY)
-
-        # ---------- Поле логов ----------
-        self.txt_logs = ScrolledText(self, height=LOG_TEXT_HEIGHT, wrap=tk.WORD, font=LOG_FONT)
-        self.txt_logs.pack(fill=tk.BOTH, expand=True, padx=PAD_X, pady=PAD_Y_LOG)
-
-        # ---------- Панель статуса ----------
-        bottom = tk.Frame(self)
-        bottom.pack(fill=tk.X, padx=PAD_X, pady=(0, PAD_Y))
-
-        self.status = tk.StringVar(value="Готово")
-        tk.Label(bottom, textvariable=self.status, anchor="w").pack(side=tk.LEFT)
+        build_top_panel(self, self, _JOURNAL_OK)
+        build_log_area(self, self)
+        build_status_bar(self, self)
 
     # ====================== Вспомогательные методы ======================
 

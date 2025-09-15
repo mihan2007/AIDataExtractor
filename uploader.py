@@ -1,28 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-uploader.py
------------
-Загрузка локальных файлов в OpenAI Vector Store + (опционально) ожидание индексации.
-
-Функция верхнего уровня:
-    upload_to_vector_store_ex(files, on_progress=None, wait_index=False) -> dict
-
-Возвращает словарь:
-    {
-        "store_id": "vs_xxx",
-        "file_ids": ["file_...", ...],
-        "attached": n,               # сколько файлов успешно привязано к хранилищу
-        "summary": "Читаемое резюме для GUI"
-    }
-
-Также содержит утилиту:
-    wait_until_indexed(store_id, on_progress=None, poll_sec=2.0, max_wait_sec=300)
-
-Требуется:
-    - requests
-    - корректные константы в config.py (API_KEY_PATH, BASE_URL, TIMEOUT)
-"""
-
 from __future__ import annotations
 
 import os
