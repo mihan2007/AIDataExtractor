@@ -17,6 +17,33 @@ def load_api_key(path: str = API_KEY_FILE) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read().strip()
 
+# --- ВВЕРХ ФАЙЛА (если ещё нет) ---
+import threading
+import time
+
+# ... существующий код, в т.ч. cleanup_store(...)
+
+# --- В КОНЕЦ ФАЙЛА: ДОБАВИТЬ ---
+def schedule_cleanup(vector_store_id: str, delay_min: int, on_done=None, on_error=None) -> None:
+    """
+    Отложенно удалить хранилище через delay_min минут.
+    Ничего не блокирует: работает в отдельном потоке.
+    Ничего не удаляем из существующих функций.
+    """
+    def _worker():
+        try:
+            if delay_min > 0:
+                time.sleep(delay_min * 60)
+            # используем уже существующую функцию удаления
+            cleanup_store(vector_store_id)
+            if on_done:
+                on_done(vector_store_id)
+        except Exception as e:
+            if on_error:
+                on_error(vector_store_id, e)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
 
 def _auth_headers(api_key: str) -> dict:
     return {"Authorization": f"Bearer {api_key}"}
