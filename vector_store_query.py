@@ -11,6 +11,9 @@ import os
 import json
 import requests
 from typing import Optional
+from time import perf_counter
+from log_journal import append_response_entry
+
 
 from config import API_KEY_PATH, BASE_URL, DEFAULT_MODEL, TIMEOUT, SYSTEM_PROMPT_PATH
 

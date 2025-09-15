@@ -1,4 +1,4 @@
-# === Стандартная библиотека ===
+
 import os
 import time
 import json
@@ -6,62 +6,93 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
-# === Локальные модули проекта ===
+# === Локальные модули ===
 from config import SYSTEM_PROMPT_PATH, DEFAULT_MODEL
 from vector_store_query import run_extraction_with_vector_store
 from uploader import upload_to_vector_store_ex
 from vector_store_cleanup import cleanup_store
 
+from config import (
+    WINDOW_SIZE, WINDOW_TITLE,
+    AUTO_DELETE_DEFAULT_MIN, AUTO_DELETE_MIN_LIMIT,
+    LOG_FONT, LOG_TEXT_HEIGHT,
+    PAD_X, PAD_Y, PAD_Y_LOG, PAD_ENTRY, PAD_CHECK,
+    JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
+)
+
+# Журнал — импортируем опционально, чтобы GUI не падал, если файл пока не создан
+try:
+    from log_journal import append_upload_entry, read_last
+    _JOURNAL_OK = True
+except Exception as _e:
+    append_upload_entry = None  # type: ignore
+    read_last = None            # type: ignore
+    _JOURNAL_OK = False
+
 
 class VectorStoreGUI(tk.Tk):
-    """
-    GUI для загрузки документов в Vector Store и извлечения данных
-    по системному промту (tender_extractor_system.prompt.md) с помощью file_search.
-    Лог работы и результат в виде JSON выводятся в этом же окне.
-    """
 
     def __init__(self):
         super().__init__()
-        self.title("Vector Store Uploader")
-        self.geometry("900x640")
+        self.title(WINDOW_TITLE)
+        self.geometry(WINDOW_SIZE)
 
         self.selected_files: List[str] = []
         self.store_id: Optional[str] = None  # сюда положим ID созданного векторного хранилища
 
         # ---------- Верхняя панель ----------
         top = tk.Frame(self)
-        top.pack(fill=tk.X, padx=10, pady=8)
+        top.pack(fill=tk.X, padx=PAD_X, pady=PAD_Y)
 
         self.btn_select = tk.Button(top, text="Выбрать файлы", command=self.select_files)
         self.btn_select.pack(side=tk.LEFT)
 
         self.btn_upload = tk.Button(top, text="Отправить в Vector Store", command=self.upload_files)
-        self.btn_upload.pack(side=tk.LEFT, padx=8)
+        self.btn_upload.pack(side=tk.LEFT, padx=PAD_X)
 
         # Кнопка "Обработать" (изначально выключена; но обработка также запускается автоматически после загрузки)
         self.btn_process = tk.Button(top, text="Обработать", state="disabled", command=self.on_process_click)
-        self.btn_process.pack(side=tk.LEFT, padx=8)
+        self.btn_process.pack(side=tk.LEFT, padx=PAD_X)
+
+        # Кнопка журнала
+        self.btn_show_journal = tk.Button(
+            top,
+            text=("Журнал (вкл.)" if _JOURNAL_OK else "Журнал (модуль не найден)"),
+            command=self.show_journal,
+            state=("normal" if _JOURNAL_OK else "disabled"),
+        )
+        self.btn_show_journal.pack(side=tk.LEFT, padx=PAD_X)
 
         # Автоудаление: чекбокс + задержка (мин)
         auto_frame = tk.Frame(top)
         auto_frame.pack(side=tk.RIGHT)
-        self.auto_delete_var = tk.BooleanVar(value=False)
+        self.auto_delete_var = tk.BooleanVar(value=True)
         # значение по умолчанию = 30 минут
-        self.delete_delay_var = tk.StringVar(value="30")
-        tk.Checkbutton(auto_frame, text="Удалить после обработки",
-                       variable=self.auto_delete_var).pack(side=tk.LEFT, padx=(8, 4))
+        self.delete_delay_var = tk.StringVar(value=AUTO_DELETE_DEFAULT_MIN)
+
+        tk.Checkbutton(
+            auto_frame,
+            text="Удалить после обработки",
+            variable=self.auto_delete_var
+        ).pack(side=tk.LEFT, padx=PAD_CHECK)
+
         tk.Label(auto_frame, text="Задержка (мин):").pack(side=tk.LEFT)
-        tk.Entry(auto_frame, width=4, textvariable=self.delete_delay_var).pack(side=tk.LEFT, padx=(4, 0))
+
+        tk.Entry(
+            auto_frame,
+            width=4,
+            textvariable=self.delete_delay_var
+        ).pack(side=tk.LEFT, padx=PAD_ENTRY)
 
         # ---------- Поле логов ----------
-        self.txt_logs = ScrolledText(self, height=26, wrap=tk.WORD, font=("Consolas", 10))
-        self.txt_logs.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+        self.txt_logs = ScrolledText(self, height=LOG_TEXT_HEIGHT, wrap=tk.WORD, font=LOG_FONT)
+        self.txt_logs.pack(fill=tk.BOTH, expand=True, padx=PAD_X, pady=PAD_Y_LOG)
 
         # ---------- Панель статуса ----------
         bottom = tk.Frame(self)
-        bottom.pack(fill=tk.X, padx=10, pady=(0, 8))
+        bottom.pack(fill=tk.X, padx=PAD_X, pady=(0, PAD_Y))
 
         self.status = tk.StringVar(value="Готово")
         tk.Label(bottom, textvariable=self.status, anchor="w").pack(side=tk.LEFT)
@@ -129,7 +160,7 @@ class VectorStoreGUI(tk.Tk):
                 )
                 elapsed = time.perf_counter() - start
 
-                speed_kb_s = None
+                speed_kb_s: Optional[float] = None
                 if total_size_bytes > 0 and elapsed > 0:
                     speed_kb_s = (total_size_bytes / 1024.0) / elapsed
 
@@ -140,23 +171,42 @@ class VectorStoreGUI(tk.Tk):
                 else:
                     self._log("⚠️ Загрузка завершена, но store_id не получен.")
 
+                # === ЖУРНАЛ: запись этапа загрузки ===
+                if _JOURNAL_OK and append_upload_entry is not None:
+                    try:
+                        files_info: List[Tuple[str, int]] = []
+                        for p in self.selected_files:
+                            try:
+                                files_info.append((p, os.path.getsize(p)))
+                            except OSError:
+                                files_info.append((p, 0))
+                        append_upload_entry(
+                            store_id=self.store_id,
+                            files=files_info,
+                            elapsed_sec=elapsed,
+                            avg_speed_kb_s=speed_kb_s if speed_kb_s is not None else None,
+                        )
+                        self._log("📝 Запись о загрузке добавлена в журнал.", also_print=False)
+                    except Exception as _log_err:
+                        self._log(f"⚠️ Не удалось записать журнал (upload): {_log_err}", also_print=False)
+
                 # Автоудаление по желанию
                 if self.auto_delete_var.get() and self.store_id:
                     try:
-                        delay_min = int(self.delete_delay_var.get().strip() or "30")
+                        delay_min = int(self.delete_delay_var.get().strip() or AUTO_DELETE_DEFAULT_MIN)
                     except ValueError:
-                        delay_min = 30
+                        delay_min = AUTO_DELETE_DEFAULT_MIN
 
                     # Минимальная задержка = 1 минута
-                    if delay_min < 1:
+                    if delay_min < AUTO_DELETE_MIN_LIMIT:
                         self._log("⚠️ Задержка меньше 1 минуты недопустима. Используется 30 минут.")
-                        delay_min = 30
+                        delay_min = AUTO_DELETE_DEFAULT_MIN
 
                     def delayed_cleanup():
                         try:
                             if delay_min > 0:
                                 time.sleep(delay_min * 60)
-                            cleanup_store(self.store_id)
+                            cleanup_store(self.store_id)  # type: ignore[arg-type]
                             self.after(0, lambda: self._log(f"🗑 Хранилище {self.store_id} удалено."))
                         except Exception as e:
                             self.after(0, lambda err=e: self._log(f"❌ Ошибка удаления {self.store_id}: {err}"))
@@ -235,6 +285,39 @@ class VectorStoreGUI(tk.Tk):
             self.after(0, show_result)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ====================== Просмотр журнала ======================
+
+    def show_journal(self):
+        """Показать последние N записей журнала в отдельном окне."""
+        if not _JOURNAL_OK or read_last is None:
+            messagebox.showwarning("Журнал", "Модуль log_journal.py не найден.")
+            return
+
+        # Берём последние 100 записей
+        entries = []
+        try:
+            entries = read_last(JOURNAL_MAX_RECORDS)  # type: ignore[call-arg]
+        except Exception as e:
+            messagebox.showerror("Журнал", f"Не удалось прочитать журнал: {e}")
+            return
+
+        win = Toplevel(self)
+        win.title("Журнал (последние записи)")
+        win.geometry(JOURNAL_WINDOW_SIZE)
+
+        txt = ScrolledText(win, wrap=tk.WORD, font=("Consolas", 10))
+        txt.pack(fill=tk.BOTH, expand=True)
+
+        if not entries:
+            txt.insert(tk.END, "Журнал пуст или файл ещё не создан.\n")
+        else:
+            for row in entries:
+                try:
+                    txt.insert(tk.END, json.dumps(row, ensure_ascii=False, indent=2) + "\n\n")
+                except Exception:
+                    txt.insert(tk.END, f"{row}\n\n")
+        txt.see(tk.END)
 
 
 if __name__ == "__main__":
