@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from vector_store_gui import VectorStoreGUI
+from ui.vector_store_gui import VectorStoreGUI
 
 def main():
     app = VectorStoreGUI()

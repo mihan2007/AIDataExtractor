@@ -2,12 +2,9 @@ import tkinter as tk
 from tkinter import ttk               # ← ДОБАВИТЬ
 from tkinter.scrolledtext import ScrolledText
 
-from config import (
-    WINDOW_SIZE, WINDOW_TITLE,
-    AUTO_DELETE_DEFAULT_MIN, AUTO_DELETE_MIN_LIMIT,
-    LOG_FONT, LOG_TEXT_HEIGHT,
-    PAD_X, PAD_Y, PAD_Y_LOG, PAD_ENTRY, PAD_CHECK, PAD_BTN,
-    JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
+from infra.config import (
+    AUTO_DELETE_DEFAULT_MIN, LOG_FONT, LOG_TEXT_HEIGHT,
+    PAD_X, PAD_Y, PAD_Y_LOG, PAD_ENTRY, PAD_CHECK, PAD_BTN
 )
 
 # было:

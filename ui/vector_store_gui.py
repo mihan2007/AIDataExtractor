@@ -8,21 +8,19 @@ from tkinter import filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
 from typing import Optional, List, Tuple
 
-from config import (
+from infra.config import (
     SYSTEM_PROMPT_PATH, DEFAULT_MODEL,
     WINDOW_SIZE, WINDOW_TITLE,
     AUTO_DELETE_DEFAULT_MIN, AUTO_DELETE_MIN_LIMIT,
-    LOG_FONT, LOG_TEXT_HEIGHT,
-    PAD_X, PAD_Y, PAD_Y_LOG, PAD_ENTRY, PAD_CHECK, PAD_BTN,
-    JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
+    LOG_FONT, PAD_X, PAD_Y, JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
 )
 
 # Сборка UI
-from gui_layout import build_top_panel, build_log_area, build_status_bar
+from ui.gui_layout import build_top_panel, build_log_area, build_status_bar
 
 # Опциональный журнал
 try:
-    from log_journal import append_upload_entry, read_last
+    from infra.log_journal import append_upload_entry, read_last
     _JOURNAL_OK = True
 except Exception:
     append_upload_entry = None  # type: ignore
@@ -30,9 +28,9 @@ except Exception:
     _JOURNAL_OK = False
 
 # Бэкенд-операции
-from uploader import upload_to_vector_store_ex
-from vector_store_cleanup import schedule_cleanup
-from vector_store_query import run_extraction_with_vector_store
+from core.uploader import upload_to_vector_store_ex
+from core.vector_store_cleanup import schedule_cleanup
+from core.vector_store_query import run_extraction_with_vector_store
 
 
 class VectorStoreGUI(tk.Tk):

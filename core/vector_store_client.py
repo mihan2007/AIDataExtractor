@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from config import API_KEY_PATH, BASE_URL, TIMEOUT
+from infra.config import API_KEY_PATH, BASE_URL, TIMEOUT
 import requests
 
 

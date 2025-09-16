@@ -7,8 +7,7 @@ from typing import Callable, Iterable, List, Optional, Tuple
 
 import requests
 
-from config import API_KEY_PATH, BASE_URL, TIMEOUT
-
+from infra.config import API_KEY_PATH, BASE_URL, TIMEOUT
 
 # ============================ ВСПОМОГАТЕЛЬНЫЕ ============================
 

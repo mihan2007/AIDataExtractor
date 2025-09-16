@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import argparse
-from uploader import upload_to_vector_store
+from core.uploader import upload_to_vector_store
 
 def main():
     parser = argparse.ArgumentParser(description="Upload files to Vector Store")

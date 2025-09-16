@@ -5,12 +5,12 @@
 import os
 
 # === Пути ===
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-import os
+INFRA_DIR = os.path.dirname(os.path.abspath(__file__))   # .../project-root/infra
+PROJECT_ROOT = os.path.dirname(INFRA_DIR)                # .../project-root
+PROMPTS_DIR = os.path.join(PROJECT_ROOT, "prompts")
 
 API_KEY_PATH = os.path.join("C:\\", "API_keys", "API_key_GPT.txt")
-
-SYSTEM_PROMPT_PATH = os.path.join(ROOT_DIR, "tender_extractor_system.prompt.md")
+SYSTEM_PROMPT_PATH = os.path.join(PROMPTS_DIR, "tender_extractor_system.prompt.md")
 
 # === OpenAI API ===
 BASE_URL = "https://api.openai.com/v1"
@@ -19,7 +19,7 @@ DEFAULT_MODEL = "gpt-4.1-mini"
 # === Сетевые таймауты ===
 TIMEOUT = (30, 180)  # (connect, read)
 
-# === Рзамер UI окна ===
+# === Размер UI окна ===
 WINDOW_SIZE = "980x720"
 WINDOW_TITLE = "Vector Store Uploader"
 
@@ -38,7 +38,7 @@ AUTO_DELETE_DEFAULT_MIN = 30
 AUTO_DELETE_MIN_LIMIT = 1
 
 # === Логирование и файлы ===
-EXTRACTION_RESULTS_DIR = os.path.join(ROOT_DIR, "results")
+EXTRACTION_RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
 os.makedirs(EXTRACTION_RESULTS_DIR, exist_ok=True)
 
 # === Окно журнала ===

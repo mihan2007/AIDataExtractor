@@ -5,7 +5,7 @@ from typing import List
 
 
 # стало:
-from config import API_KEY_PATH as API_KEY_FILE, BASE_URL as API_BASE_URL, TIMEOUT as REQUEST_TIMEOUT
+from infra.config import API_KEY_PATH as API_KEY_FILE, BASE_URL as API_BASE_URL, TIMEOUT as REQUEST_TIMEOUT
 
 
 def load_api_key(path: str = API_KEY_FILE) -> str:
