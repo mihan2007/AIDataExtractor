@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from config import EXTRACTION_RESULTS_DIR
+from infra.config import EXTRACTION_RESULTS_DIR
 
 # === Где хранить журнал ===
 LOGS_DIR = os.path.join(EXTRACTION_RESULTS_DIR, "logs")

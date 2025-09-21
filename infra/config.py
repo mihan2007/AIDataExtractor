@@ -43,4 +43,4 @@ os.makedirs(EXTRACTION_RESULTS_DIR, exist_ok=True)
 
 # === Окно журнала ===
 JOURNAL_WINDOW_SIZE = "900x560"
-JOURNAL_MAX_RECORDS = 100
+JOURNAL_MAX_RECORDS = 1000
