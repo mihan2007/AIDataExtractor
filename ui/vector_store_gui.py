@@ -1,12 +1,14 @@
 # vector_store_gui.py — облегчённый контроллер GUI
 import os
 import time
-import json
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
 from typing import Optional, List, Tuple
+from pydantic import ValidationError
+from tkinter import messagebox
+import json
 
 from infra.config import (
     SYSTEM_PROMPT_PATH, DEFAULT_MODEL,
@@ -14,9 +16,6 @@ from infra.config import (
     AUTO_DELETE_DEFAULT_MIN, AUTO_DELETE_MIN_LIMIT,
     LOG_FONT, PAD_X, PAD_Y, JOURNAL_WINDOW_SIZE, JOURNAL_MAX_RECORDS
 )
-
-# Сборка UI
-from ui.gui_layout import build_top_panel, build_log_area, build_status_bar
 
 # Опциональный журнал
 try:
@@ -76,25 +75,23 @@ class VectorStoreGUI(tk.Tk):
         if self.txt_logs:
             self.txt_logs.insert(tk.END, msg + "\n")
             self.txt_logs.see(tk.END)
-            self.update_idletasks()
         if also_print:
             print(msg, flush=True)
 
     def _set_busy(self, busy: bool):
-        state = "disabled" if busy else "normal"
-        if self.btn_select:  self.btn_select.config(state=state)
-        if self.btn_upload:  self.btn_upload.config(state=state)
-        if self.btn_process: self.btn_process.config(state=state if self.store_id else "disabled")
-        self.status.set("Выполняется…" if busy else "Готово")
+        if busy:
+            self.config(cursor="watch")
+        else:
+            self.config(cursor="")
         self.update_idletasks()
 
-    # ====================== Обработчики UI ======================
-    def select_files(self):
-        filetypes = [
-            ("Документы", "*.pdf *.docx *.doc *.xlsx *.xls *.txt *.md"),
-            ("Все файлы", "*.*"),
-        ]
-        paths = filedialog.askopenfilenames(title="Выберите документы", filetypes=filetypes)
+    # ====================== Колбэки UI ======================
+    def choose_files(self):
+        """Выбор файлов для загрузки."""
+        paths = filedialog.askopenfilenames(
+            title="Выберите файлы",
+            filetypes=(("Документы", "*.pdf *.doc *.docx *.xls *.xlsx *.txt"), ("Все файлы", "*.*")),
+        )
         if not paths:
             return
 
@@ -140,47 +137,16 @@ class VectorStoreGUI(tk.Tk):
 
                 # Store ID
                 self.store_id = (result or {}).get("store_id")
-                if self.store_id:
-                    self._log(f"✅ Получен Store ID: {self.store_id}")
-                else:
-                    self._log("⚠️ Загрузка завершена, но store_id не получен.")
-
-                # ЖУРНАЛ (по возможности)
-                if _JOURNAL_OK and append_upload_entry is not None:
+                if self.store_id and append_upload_entry:
                     try:
-                        files_info: List[Tuple[str, int]] = []
-                        for p in self.selected_files:
-                            try:
-                                files_info.append((p, os.path.getsize(p)))
-                            except OSError:
-                                files_info.append((p, 0))
                         append_upload_entry(
+                            files=self.selected_files,
                             store_id=self.store_id,
-                            files=files_info,
+                            total_size_bytes=total_size_bytes,
                             elapsed_sec=elapsed,
-                            avg_speed_kb_s=speed_kb_s if speed_kb_s is not None else None,
                         )
-                        self._log("📝 Запись о загрузке добавлена в журнал.", also_print=False)
-                    except Exception as _log_err:
-                        self._log(f"⚠️ Не удалось записать журнал (upload): {_log_err}", also_print=False)
-
-                # Автоудаление — делегировано в vector_store_cleanup
-                if self.auto_delete_var.get() and self.store_id:
-                    try:
-                        delay_min = int(self.delete_delay_var.get().strip() or AUTO_DELETE_DEFAULT_MIN)
-                    except ValueError:
-                        delay_min = AUTO_DELETE_DEFAULT_MIN
-
-                    if delay_min < AUTO_DELETE_MIN_LIMIT:
-                        self._log("⚠️ Задержка меньше 1 минуты недопустима. Используется 30 минут.")
-                        delay_min = AUTO_DELETE_DEFAULT_MIN
-
-                    schedule_cleanup(
-                        self.store_id,
-                        delay_min,
-                        on_done=lambda sid: self.after(0, lambda: self._log(f"🗑 Хранилище {sid} удалено.")),
-                        on_error=lambda sid, e: self.after(0, lambda: self._log(f"❌ Ошибка удаления {sid}: {e}")),
-                    )
+                    except Exception:
+                        pass
 
                 def done_ui():
                     self._log(f"\n⏱ Время отправки (с ожиданием индексации): {elapsed:.2f} сек.")
@@ -222,25 +188,48 @@ class VectorStoreGUI(tk.Tk):
         self.status.set("Обработка по системному промту…")
 
         def worker():
+
+
             try:
-                pretty_json = run_extraction_with_vector_store(
+                # Запускаем извлечение по системному промпту
+                result_json = run_extraction_with_vector_store(
                     store_id=self.store_id,
-                    user_instruction="Извлеки данные строго по системному промту.",
+                    user_instruction="Извлеки данные строго по системному промпту.",
                     model=DEFAULT_MODEL,
                     system_prompt_path=SYSTEM_PROMPT_PATH,
                 )
+
+                # Красиво форматируем JSON для отображения в UI
+                try:
+                    pretty = json.dumps(json.loads(result_json), ensure_ascii=False, indent=2)
+                except Exception:
+                    pretty = result_json  # если вдруг пришёл не-JSON, показываем как есть
+
+            except ValidationError as e:
+                # Показываем пользователю понятную ошибку валидации
+                self.after(0,
+                           lambda: self._log("\n❌ Ошибка валидации JSON по схеме из system.prompt.", also_print=False))
+                self.after(0, lambda: self._log(json.dumps(e.errors(), ensure_ascii=False, indent=2), also_print=False))
+                self.after(0, lambda: messagebox.showerror("Валидация JSON",
+                                                           "JSON не соответствует схеме. Подробности — в логах окна."))
+                self.after(0, lambda: self.btn_process.config(state="normal") if self.btn_process else None)
+                self.after(0, lambda: self.status.set("Ошибка: JSON не соответствует схеме."))
+                return
+
             except Exception as e:
+                # Любая иная ошибка обработки
                 self.after(0, lambda: messagebox.showerror("Ошибка обработки", str(e)))
                 self.after(0, lambda: self.btn_process.config(state="normal") if self.btn_process else None)
                 self.after(0, lambda: self.status.set("Ошибка обработки."))
                 return
 
+            # Вывод результата в UI (в главном потоке)
             def show_result():
                 self.status.set("Обработка завершена.")
                 if self.btn_process:
                     self.btn_process.config(state="normal")
-                self._log("\n=== РЕЗУЛЬТАТ ИЗВЛЕЧЕНИЯ (JSON) ===")
-                self._log(pretty_json, also_print=False)
+                self._log("\n=== РЕЗУЛЬТАТ ИЗВЛЕЧЕНИЯ (JSON, валидация Pydantic) ===")
+                self._log(pretty, also_print=False)
                 self._log("=== КОНЕЦ РЕЗУЛЬТАТА ===\n")
 
             self.after(0, show_result)
@@ -258,11 +247,11 @@ class VectorStoreGUI(tk.Tk):
         top.title("Журнал загрузок")
         top.geometry(JOURNAL_WINDOW_SIZE)
 
-        text = ScrolledText(top, wrap=tk.WORD, font=LOG_FONT)
-        text.pack(fill=tk.BOTH, expand=True, padx=PAD_X, pady=PAD_Y)
+        text = ScrolledText(top, font=LOG_FONT)
+        text.pack(fill=tk.BOTH, expand=True)
 
         try:
-            rows = read_last(JOURNAL_MAX_RECORDS)  # type: ignore[misc]
+            rows = read_last(JOURNAL_MAX_RECORDS)
         except Exception as e:
             messagebox.showerror("Журнал", str(e))
             return
@@ -277,3 +266,48 @@ class VectorStoreGUI(tk.Tk):
                     text.insert(tk.END, str(row) + "\n\n")
 
         text.see(tk.END)
+
+
+# ====================== Построение UI ======================
+
+def build_top_panel(app: VectorStoreGUI):
+    frame = tk.Frame(app)
+    frame.pack(fill=tk.X, padx=PAD_X, pady=PAD_Y)
+
+    btn_sel = tk.Button(frame, text="Выбрать файлы", command=app.choose_files)
+    btn_sel.pack(side=tk.LEFT)
+    app.btn_select = btn_sel
+
+    btn_up = tk.Button(frame, text="Загрузить", command=app.upload_files)
+    btn_up.pack(side=tk.LEFT, padx=(8, 0))
+    app.btn_upload = btn_up
+
+    btn_proc = tk.Button(frame, text="Обработать", command=app.on_process_click, state="disabled")
+    btn_proc.pack(side=tk.LEFT, padx=(8, 0))
+    app.btn_process = btn_proc
+
+    if app.journal_ok:
+        btn_j = tk.Button(frame, text="Журнал", command=app.show_journal)
+        btn_j.pack(side=tk.LEFT, padx=(8, 0))
+        app.btn_show_journal = btn_j
+
+
+def build_log_area(master: tk.Tk, app: VectorStoreGUI):
+    txt = ScrolledText(master, font=LOG_FONT)
+    txt.pack(fill=tk.BOTH, expand=True, padx=PAD_X, pady=PAD_Y)
+    app.txt_logs = txt
+
+
+def build_status_bar(master: tk.Tk, app: VectorStoreGUI):
+    bar = tk.Frame(master)
+    bar.pack(fill=tk.X, padx=PAD_X, pady=PAD_Y)
+
+    lbl = tk.Label(bar, textvariable=app.status, anchor="w")
+    lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    app.status_bar = bar
+
+
+if __name__ == "__main__":
+    app = VectorStoreGUI()
+    app.mainloop()

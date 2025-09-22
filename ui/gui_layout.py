@@ -22,8 +22,6 @@ def build_top_panel(app):
     app.btn_upload = tk.Button(top, text="Отправить в Vector Store", command=app.upload_files)
     app.btn_upload.pack(side=tk.LEFT, padx=PAD_BTN)
 
-    #app.btn_process = tk.Button(top, text="Обработать", state="disabled", command=app.on_process_click)
-    #app.btn_process.pack(side=tk.LEFT, padx=PAD_BTN)
 
     app.btn_show_journal = tk.Button(
         top,

@@ -124,3 +124,21 @@ def read_last(n: int = 50) -> List[Dict[str, Any]]:
         except Exception:
             continue
     return out
+def append_result_entry(clean_json_str: str, note: str = None):
+    """
+    Пишет в журнал валидированный результат модели.
+    clean_json_str — строка JSON, прошедшая validate_and_dump_json (exclude_none=True).
+    """
+    try:
+        payload = json.loads(clean_json_str)
+    except Exception:
+        payload = {"raw_text": (clean_json_str[:2000] + "…") if len(clean_json_str) > 2000 else clean_json_str}
+
+    rec = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "phase": "result",
+        "result": payload,
+    }
+    if note:
+        rec["note"] = note
+    append_log(rec)

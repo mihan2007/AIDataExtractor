@@ -6,6 +6,11 @@ from typing import List, Optional, Dict, Any
 from infra.config import API_KEY_PATH, BASE_URL, TIMEOUT
 import requests
 
+try:
+    # опционально: логирование, если модуль доступен
+    from infra.log_journal import append_upload_entry
+except Exception:
+    append_upload_entry = None  # нет журнала — просто пропустим
 
 class VectorStoreClient:
     def __init__(
@@ -103,3 +108,44 @@ class VectorStoreClient:
             if time.time() - start > max_wait:
                 return {"status": "timeout"}
             time.sleep(interval)
+
+    def upload_and_attach_files(self, store_id: str, paths: list[str]) -> dict:
+        """
+        Загружает файлы в /files, привязывает к vector store, ждёт индексацию (необязательно),
+        и записывает в журнал: id хранилища, суммарное время и среднюю скорость.
+        Возвращает метрики для UI.
+        """
+        start = time.time()
+        file_sizes = []
+        for p in paths:
+            size = os.path.getsize(p)
+            file_sizes.append((p, size))
+
+            fmeta = self.upload_file(p)  # POST /files
+            fid = fmeta.get("id")
+            if fid:
+                self.attach_file(store_id, fid)  # POST /vector_stores/{id}/files
+
+        elapsed = time.time() - start
+        total_bytes = sum(sz for _, sz in file_sizes) or 0
+        avg_speed_kb_s = (total_bytes / 1024.0 / elapsed) if elapsed > 0 else None
+
+        # запись в журнал (если доступен модуль журнала)
+        if append_upload_entry:
+            try:
+                append_upload_entry(
+                    store_id=store_id,
+                    files=file_sizes,
+                    elapsed_sec=elapsed,
+                    avg_speed_kb_s=avg_speed_kb_s,
+                )
+            except Exception:
+                pass
+
+        return {
+            "store_id": store_id,
+            "elapsed_sec": round(elapsed, 3),
+            "avg_speed_kb_s": round(avg_speed_kb_s, 3) if avg_speed_kb_s is not None else None,
+            "total_bytes": total_bytes,
+            "files": [{"name": os.path.basename(p), "size_bytes": sz} for p, sz in file_sizes],
+        }
