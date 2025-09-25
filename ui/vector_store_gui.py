@@ -119,7 +119,7 @@ class VectorStoreGUI(tk.Tk):
         self._log("\n— Начинаю загрузку…")
 
         def on_progress(msg: str):
-            self._log(msg, also_print=False)
+            self._log(msg)
 
         def bg_task():
             start = time.perf_counter()
@@ -229,7 +229,7 @@ class VectorStoreGUI(tk.Tk):
                 if self.btn_process:
                     self.btn_process.config(state="normal")
                 self._log("\n=== РЕЗУЛЬТАТ ИЗВЛЕЧЕНИЯ (JSON, валидация Pydantic) ===")
-                self._log(pretty, also_print=False)
+                self._log(pretty)
                 self._log("=== КОНЕЦ РЕЗУЛЬТАТА ===\n")
 
             self.after(0, show_result)
