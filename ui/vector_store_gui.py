@@ -3,12 +3,16 @@ import os
 import time
 import threading
 import tkinter as tk
+import json
 from tkinter import filedialog, messagebox, Toplevel
 from tkinter.scrolledtext import ScrolledText
 from typing import Optional, List, Tuple
 from pydantic import ValidationError
 from tkinter import messagebox
-import json
+from core.pipeline import run_pipeline
+
+
+
 
 from infra.config import (
     SYSTEM_PROMPT_PATH, DEFAULT_MODEL,
@@ -104,75 +108,60 @@ class VectorStoreGUI(tk.Tk):
             self._log(f" • {os.path.basename(p)}")
 
     def upload_files(self):
-        """Запуск загрузки в Vector Store (делегируется uploader'у)."""
+        """Загрузка + ожидание индексации + обработка через общий pipeline."""
         if not self.selected_files:
             messagebox.showwarning("Нет файлов", "Сначала выберите файлы")
             return
-
-        # Примерная оценка для UI-метрики
-        try:
-            total_size_bytes = sum(os.path.getsize(p) for p in self.selected_files)
-        except OSError:
-            total_size_bytes = 0
 
         self._set_busy(True)
         self._log("\n— Начинаю загрузку…")
 
         def on_progress(msg: str):
+            # Пишем в UI и, благодаря self._log, дублируем в консоль
             self._log(msg)
 
-        def bg_task():
-            start = time.perf_counter()
+        def worker():
             try:
-                result = upload_to_vector_store_ex(
+                res = run_pipeline(
                     self.selected_files,
+                    wait_index=True,  # как и раньше — сразу ждём индексацию
+                    save_dir=None,  # при желании сюда можно подставить путь для доп. сохранения
                     on_progress=on_progress,
-                    wait_index=True,  # ждём индексацию, чтобы сразу обрабатывать
                 )
-                elapsed = time.perf_counter() - start
+                self.store_id = res.store_id
 
-                speed_kb_s: Optional[float] = None
-                if total_size_bytes > 0 and elapsed > 0:
-                    speed_kb_s = (total_size_bytes / 1024.0) / elapsed
-
-                # Store ID
-                self.store_id = (result or {}).get("store_id")
-                if self.store_id and append_upload_entry:
+                # Готовим красивый вывод результата (как и раньше)
+                pretty = None
+                if res.clean_json:
                     try:
-                        append_upload_entry(
-                            files=self.selected_files,
-                            store_id=self.store_id,
-                            total_size_bytes=total_size_bytes,
-                            elapsed_sec=elapsed,
-                        )
+                        import json
+                        pretty = json.dumps(json.loads(res.clean_json), ensure_ascii=False, indent=2)
                     except Exception:
-                        pass
+                        pretty = res.clean_json
 
                 def done_ui():
-                    self._log(f"\n⏱ Время отправки (с ожиданием индексации): {elapsed:.2f} сек.")
-                    if speed_kb_s is not None:
-                        self._log(f"⚡ Средняя скорость: {speed_kb_s:.2f} КБ/сек.")
+                    if self.btn_process:
+                        self.btn_process.config(state="normal")
                     if self.store_id:
-                        self.status.set(f"Загрузка завершена. Store ID: {self.store_id}")
-                        if self.btn_process:
-                            self.btn_process.config(state="normal")
-                        self._log("\n— Запускаю обработку по системному промту…")
-                        self._process_now()  # автообработка сразу после загрузки
+                        self.status.set(f"Готово. Store ID: {self.store_id}")
                     else:
-                        self.status.set("Загрузка завершена, но store_id не получен.")
-                        if self.btn_process:
-                            self.btn_process.config(state="disabled")
-                    if result and "summary" in result:
-                        messagebox.showinfo("Готово", result["summary"])
+                        self.status.set("Готово.")
+
+                    if pretty:
+                        self._log("\n=== РЕЗУЛЬТАТ ИЗВЛЕЧЕНИЯ (JSON, валидация Pydantic) ===")
+                        self._log(pretty)
+                        self._log("=== КОНЕЦ РЕЗУЛЬТАТА ===\n")
 
                 self.after(0, done_ui)
 
             except Exception as e:
-                self.after(0, lambda err=e: messagebox.showerror("Ошибка", str(err)))
+                self.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
+                self.after(0, lambda: self.status.set("Ошибка."))
             finally:
                 self.after(0, lambda: self._set_busy(False))
 
-        threading.Thread(target=bg_task, daemon=True).start()
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
 
     def on_process_click(self):
         self._process_now()
