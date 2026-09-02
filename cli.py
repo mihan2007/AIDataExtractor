@@ -21,12 +21,13 @@ from infra.localization import translate as T
 i18n.reload_language_from_settings()
 
 
-def pick_files_via_dialog() -> list[str]:
+def pick_files_via_dialog(initialdir: str | None = None) -> list[str]:
     root = tk.Tk()
     root.withdraw()
     try:
         paths = filedialog.askopenfilenames(
             title=T("dialog.select_files.title"),
+            initialdir=initialdir or os.getcwd(),   # ← вот эта строка
             filetypes=(
                 (T("dialog.select_files.documents"), "*.pdf *.doc *.docx *.xls *.xlsx *.txt"),
                 (T("dialog.select_files.all_files"), "*.*"),
@@ -35,6 +36,7 @@ def pick_files_via_dialog() -> list[str]:
         return list(paths or [])
     finally:
         root.destroy()
+
 
 
 def _save_result_record(save_dir: str, store_id: str, clean_json: str) -> str:
@@ -82,6 +84,17 @@ def main() -> None:
         choices=i18n.available_languages(),
         help=T("cli.arg.language"),
     )
+    parser.add_argument(
+    "--select",
+    dest="select",
+    action="store_true",
+    help="Открыть окно выбора файлов",
+    )
+    parser.add_argument(
+        "--folder",
+        dest="folder",
+        help="Папка, в которой открыть окно выбора файлов",
+    )
 
     args = parser.parse_args()
 
@@ -98,10 +111,15 @@ def main() -> None:
     else:
         i18n.reload_language_from_settings()
 
-    files = args.files or pick_files_via_dialog()
+    if args.select:
+        files = pick_files_via_dialog(initialdir=args.folder)
+    else:
+        files = args.files or pick_files_via_dialog(initialdir=args.folder)
+
     if not files:
         print(T("cli.no_files"), flush=True)
         sys.exit(0)
+
 
     def on_progress(msg: str) -> None:
         print(msg, flush=True)
